@@ -34,20 +34,22 @@ int XNOR(int a, int b) {
     return !(a ^ b);
 }
 
-int AND_N(int *slice_a, int *slice_b, int n) {
-    for (int i = 0; i < n/2; i++) {
-        if (slice_a[i] == 0 || slice_b[i] == 0) {
-            return 0;
+// Updated for Milestone 4
+int AND_N(int *values, int n) {
+    for (int i = 0; i < n; i++) {
+        if (values[i] == 0) {
+            return 0; // If any input is 0, the result is 0
         }
     }
-    return 1;
+    return 1; // All inputs were 1
 }
 
-int OR_N(int *slice_a, int *slice_b, int n) {
-    for (int i = 0; i < n/2; i++) {
-        if (slice_a[i] == 1 || slice_b[i] == 1) {
-            return 1;
+// Updated for Milestone 4
+int OR_N(int *values, int n) {
+    for (int i = 0; i < n; i++) {
+        if (values[i] == 1) {
+            return 1; // If any input is 1, the result is 1
         }
     }
-    return 0;
+    return 0; // All inputs were 0
 }

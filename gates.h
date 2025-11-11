@@ -14,7 +14,7 @@ int NAND(int a, int b);
 int NOR(int a, int b);
 int XOR(int a, int b);
 int XNOR(int a, int b);
-int AND_N(int *slice_a, int *slice_b, int n);
-int OR_N(int *slice_a, int *slice_b, int n);
+int AND_N(int *values, int n);
+int OR_N(int *values, int n);
 
 #endif //GATES_H

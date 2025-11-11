@@ -12,8 +12,8 @@
 typedef struct Gate {
     int index;
     char type;              // 'I', 'A', 'O', 'X', 'N', 'Q'
-    int input1;             // Index of first input gate
-    int input2;             // Index of second input gate
+    int *inputs;            // Dynamic array of inputs
+    int nInputs;            // Count of inputs in array
     int value;              // Computed output value (0 or 1, -1 = uninitialized)
     struct Gate *next;      // Pointer to next gate in list
 } Gate;
@@ -91,6 +91,8 @@ Gate* readCircuitFile(const char* filename, int* nGates) {
         return NULL;
     }
 
+    fgetc(file); // Get rid of newline left by fscanf
+
     Gate *head = NULL;
     Gate *tail = NULL;
 
@@ -104,18 +106,50 @@ Gate* readCircuitFile(const char* filename, int* nGates) {
             return NULL;
         }
 
-        int scanResult = fscanf(file, "%d: %c %d %d",
-                                &newGate->index,
-                                &newGate->type,
-                                &newGate->input1,
-                                &newGate->input2);
+        // Init newGate
+        newGate->inputs = NULL;
+        newGate->nInputs = 0;
+        newGate->value = -1;
+        newGate->next = NULL;
 
-        if (scanResult != 4) {
-            printf("Error: Invalid format on line %d\n", i + 2);
+        char lineBuffer[256];
+        if (fgets(lineBuffer, sizeof(lineBuffer), file) == NULL) {
+            printf("Error: File ended unexpectedly on line %d\n", i+2);
             free(newGate);
             fclose(file);
             freeCircuit(head);
             return NULL;
+        }
+
+        //Parse the line
+        char *token = strtok(lineBuffer, " \t:\n");
+        if (token == NULL) {
+            continue;
+        }
+
+        newGate->index = atoi(token);
+
+        token = strtok(NULL, " \t:\n");
+        if (token == NULL) {
+            continue;
+        }
+
+        newGate->type = token[0];
+
+        //Reads all remaining tokens as inputs
+        while ((token = strtok(NULL, " \t:\n")) != NULL) {
+            int input = atoi(token);
+            if (input == 0) {
+                continue;
+            }
+            newGate->nInputs++;
+
+            newGate->inputs = (int*)realloc(newGate->inputs, newGate->nInputs * sizeof(int));
+            if (newGate->inputs == NULL) {
+                printf("Error allocating memory for inputs\n");
+                return NULL;
+            }
+            newGate->inputs[newGate->nInputs - 1] = input;
         }
 
         //Confirm gate types
@@ -124,14 +158,15 @@ Gate* readCircuitFile(const char* filename, int* nGates) {
             newGate->type != 'N' && newGate->type != 'Q')
         {
             printf("Error: Invalid gate type '%c' at gate %d\n", newGate->type, newGate->index);
+            free(newGate->inputs);
             free(newGate);
             fclose(file);
             freeCircuit(head);
             return NULL;
         }
 
-        newGate->value = -1;
-        newGate->next = NULL;
+        //newGate->value = -1;
+        //newGate->next = NULL;
 
         //Add to linked list (FIFO)
         if (head == NULL) {
@@ -153,6 +188,7 @@ void freeCircuit(Gate *head) {
     while (current != NULL) {
         Gate *temp = current;
         current = current->next;
+        free(temp->inputs);
         free(temp);
     }
 }
@@ -211,33 +247,58 @@ void evaluateCircuit(Gate *head) {
     Gate *current = head;
 
     while (current != NULL) {
+        // Skip gates that are already evaluated (like Inputs)
         if (current->value != -1) {
             current = current->next;
             continue;
         }
 
-        int val1 = getGateValue(head, current->input1);
-        int val2 = getGateValue(head, current->input2);
-
         switch (current->type) {
             case 'I':
                 // Input gate. Value is already set. Do nothing.
                 break;
+
             case 'A':
-                current->value = AND(val1, val2);
+            case 'O': {
+                int *inputValues = (int*)malloc(current->nInputs * sizeof(int));
+                // Create temp array to hold values
+                if (inputValues == NULL) {
+                    printf("Error: Malloc failed in evaluateCircuit\n");
+                    current->value = 0;
+                    break;
+                }
+
+                // Populate array with values
+                for (int i = 0; i < current->nInputs; i++) {
+                    inputValues[i] = getGateValue(head, current->inputs[i]);
+                }
+
+                // Call appropriate gates
+                if (current->type == 'A') {
+                    current->value = AND_N(inputValues, current->nInputs);
+                } else {
+                    current->value = OR_N(inputValues, current->nInputs);
+                }
+
+                free(inputValues);
+            }
                 break;
-            case 'O':
-                current->value = OR(val1, val2);
+
+            case 'X': // 2-input XOR (based on M3 and M4 example)
+                current->value = XOR(
+                    getGateValue(head, current->inputs[0]),
+                    getGateValue(head, current->inputs[1])
+                );
                 break;
-            case 'X':
-                current->value = XOR(val1, val2);
+
+            case 'N': // 1-input NOT
+                current->value = NOT(getGateValue(head, current->inputs[0]));
                 break;
-            case 'N':
-                current->value = NOT(val1);
+
+            case 'Q': // 1-input OUTPUT
+                current->value = getGateValue(head, current->inputs[0]);
                 break;
-            case 'Q':
-                current->value = val1;
-                break;
+
             default:
                 printf("Unknown gate type '%c' at gate %d. Setting value to 0.\n", current->type, current->index);
                 current->value = 0;
@@ -299,12 +360,14 @@ void displayCircuitStructure(Gate *head) {
 
         if (current->type == 'I') {
             printf("[user input]\n");
-        } else if (current->type == 'N' || current->type == 'Q') {
-            printf(" <- gate %d\n",current->input1);
-        } else if (current->input2 == 0) {
-            printf(" <- gate %d\n", current->input1);
+        } else if (current->nInputs == 0) {
+            printf("\n"); // No inputs
         } else {
-            printf(" <- gates %d, %d\n", current->input1, current->input2);
+            printf(" <- gate(s) ");
+            for (int i = 0; i < current->nInputs; i++) {
+                printf("%d ", current->inputs[i]);
+            }
+            printf("\n");
         }
         current = current->next;
     }
